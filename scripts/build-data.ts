@@ -9,7 +9,7 @@ import { COUNTIES, STATES_USED } from '../lib/cities';
 import { fetchBlockGroupStats, type BlockGroupStats } from '../lib/census';
 import { loadSld } from '../lib/sld';
 import { fetchNrhpDistricts } from '../lib/nrhp';
-import { industrialQuery, osmToPolygonFc, overpass, type Bbox } from '../lib/overpass';
+import { greenspaceQuery, industrialQuery, osmToPolygonFc, overpass, type Bbox } from '../lib/overpass';
 
 const CACHE_DIR = path.resolve('scripts/.cache');
 const OUT_DIR = path.resolve('public/data');
@@ -98,6 +98,39 @@ async function main() {
     console.log(`  ${fc.features.length} district polygons`);
   } else {
     console.log(`  cached: ${path.basename(nrhpFile)}`);
+  }
+
+  // 2c-pre. Fetch OSM greenspace polygons (parks, forests, cemeteries, etc.)
+  // as a tree-canopy proxy. CONUS NLCD raster is the rigorous source but
+  // gated/heavy; this captures the user-visible greenspace anyway.
+  const greenspaceFile = path.join(CACHE_DIR, 'greenspace.geojson');
+  if (!existsSync(greenspaceFile)) {
+    console.log('Fetching OSM greenspace per county…');
+    const allGreen: GeoJSON.Feature[] = [];
+    for (const c of COUNTIES) {
+      const bbox = COUNTY_BBOX[`${c.stateFips}${c.countyFips}`];
+      if (!bbox) continue;
+      const cacheKey = `osm-greenspace-${c.stateFips}${c.countyFips}.json`;
+      const cachePath = path.join(CACHE_DIR, cacheKey);
+      let fc: GeoJSON.FeatureCollection;
+      if (existsSync(cachePath)) {
+        fc = JSON.parse(await fs.readFile(cachePath, 'utf8')) as GeoJSON.FeatureCollection;
+        console.log(`  ${c.name}: ${fc.features.length} (cached)`);
+      } else {
+        const raw = await overpass(greenspaceQuery(bbox));
+        fc = osmToPolygonFc(raw);
+        await fs.writeFile(cachePath, JSON.stringify(fc));
+        console.log(`  ${c.name}: ${fc.features.length}`);
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      allGreen.push(...fc.features);
+    }
+    await fs.writeFile(
+      greenspaceFile,
+      JSON.stringify({ type: 'FeatureCollection', features: allGreen }),
+    );
+  } else {
+    console.log(`  cached: ${path.basename(greenspaceFile)}`);
   }
 
   // 2c. Fetch OSM industrial land-use polygons via Overpass (per-county, cached).
@@ -273,6 +306,18 @@ async function main() {
     { stdio: 'inherit' },
   );
 
+  // Greenspace polygon centroids → BG (proxy for tree canopy + park access).
+  const greenJoined = path.join(CACHE_DIR, 'bg-green-joined.geojson');
+  execSync(
+    [
+      'pnpm exec mapshaper',
+      `"${draftPath}"`,
+      `-join "${greenspaceFile}" calc="greenspace_count=count()" point-method`,
+      `-o format=geojson "${greenJoined}"`,
+    ].join(' '),
+    { stdio: 'inherit' },
+  );
+
   const joinedNrhpRaw = JSON.parse(await fs.readFile(nrhpJoined, 'utf8')) as
     | Array<Record<string, string | number>>
     | { [key: string]: Array<Record<string, string | number>> };
@@ -295,18 +340,34 @@ async function main() {
     indCountByGeoid[g] = (p.industrial_count as number) ?? 0;
   }
 
+  const greenFc = JSON.parse(await fs.readFile(greenJoined, 'utf8')) as GeoJSON.FeatureCollection;
+  const greenCountByGeoid: Record<string, number> = {};
+  for (const feature of greenFc.features) {
+    const p = feature.properties as Record<string, unknown> | null;
+    if (!p) continue;
+    const g = p.geoid as string;
+    greenCountByGeoid[g] = (p.greenspace_count as number) ?? 0;
+  }
+
   // Patch features in-place + recompute composite with bonuses/penalties.
   for (const f of fc.features) {
     const p = f.properties as Record<string, unknown>;
     const geoid = p.geoid as string;
     const nrhpFlag = nrhpByGeoid[geoid] ?? 0;
     const indCount = indCountByGeoid[geoid] ?? 0;
-    // Penalty saturates around 5 industrial polygons; max 40% knockdown.
+    const greenCount = greenCountByGeoid[geoid] ?? 0;
+    // Industrial penalty saturates around 5 polygons; max 40% knockdown.
     const indPenalty = Math.min(indCount / 5, 1) * 0.4;
+    // Greenspace bonus saturates around 10 polygons; up to +25%.
+    // Wide saturation point lets leafy streetcar suburbs (17+ polygons)
+    // pull ahead of single-park urban blocks.
+    const greenBonus = Math.min(greenCount / 10, 1) * 0.25;
     p.nrhp_district = nrhpFlag;
     p.industrial_count = indCount;
+    p.greenspace_count = greenCount;
     const base = p.composite_score as number;
-    p.composite_score = base * (1 + 0.25 * nrhpFlag) * (1 - indPenalty);
+    p.composite_score =
+      base * (1 + 0.25 * nrhpFlag) * (1 - indPenalty) * (1 + greenBonus);
   }
 
   const outPath = path.join(OUT_DIR, 'bg.geojson');

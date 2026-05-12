@@ -67,6 +67,22 @@ out body;
 `;
 }
 
+export function greenspaceQuery(bbox: Bbox): string {
+  const [s, w, n, e] = bbox;
+  return `
+[out:json][timeout:90];
+(
+  way["leisure"~"^(park|garden|nature_reserve)$"](${s},${w},${n},${e});
+  relation["leisure"~"^(park|garden|nature_reserve)$"](${s},${w},${n},${e});
+  way["landuse"~"^(forest|cemetery|recreation_ground|grass)$"](${s},${w},${n},${e});
+  relation["landuse"~"^(forest|cemetery|recreation_ground|grass)$"](${s},${w},${n},${e});
+  way["natural"~"^(wood|scrub)$"](${s},${w},${n},${e});
+  relation["natural"~"^(wood|scrub)$"](${s},${w},${n},${e});
+);
+out geom;
+`;
+}
+
 export function brickStreetQuery(bbox: Bbox): string {
   const [s, w, n, e] = bbox;
   return `

@@ -25,6 +25,7 @@ export type BgProperties = {
   median_income: number;
   nrhp_district: 0 | 1;
   industrial_count: number;
+  greenspace_count: number;
   composite_score: number;
 };
 

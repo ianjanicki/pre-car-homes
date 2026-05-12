@@ -12,6 +12,7 @@ export type LayerId =
   | 'median_income'
   | 'nrhp_district'
   | 'industrial_count'
+  | 'greenspace_count'
   | 'sfh_detached_share'
   | 'sfh_attached_share';
 
@@ -167,6 +168,23 @@ export const LAYERS: Record<LayerId, LayerDef> = {
     description:
       'NPS National Register of Historic Places — block group centroid falls inside an officially-listed historic district. Binary.',
   },
+  greenspace_count: {
+    id: 'greenspace_count',
+    label: 'OSM greenspace polygons',
+    shortLabel: 'Greenspace',
+    property: 'greenspace_count',
+    ramp: [
+      [0, '#f7f7f7'],
+      [1, '#fee5d9'],
+      [3, '#fcae91'],
+      [6, '#fb6a4a'],
+      [12, '#de2d26'],
+      [25, '#a50f15'],
+    ],
+    format: (v) => v.toFixed(0),
+    description:
+      'OpenStreetMap parks, forests, cemeteries, and nature reserves whose centroids fall inside this block group. Proxy for tree canopy / access to green space.',
+  },
   industrial_count: {
     id: 'industrial_count',
     label: 'OSM industrial polygons',
@@ -215,6 +233,7 @@ export const LAYER_ORDER: LayerId[] = [
   'median_income',
   'nrhp_district',
   'industrial_count',
+  'greenspace_count',
   'sfh_detached_share',
   'sfh_attached_share',
 ];
