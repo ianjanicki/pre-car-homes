@@ -10,6 +10,7 @@ export type LayerId =
   | 'walkability'
   | 'intersection_density'
   | 'nrhp_district'
+  | 'industrial_count'
   | 'sfh_detached_share'
   | 'sfh_attached_share';
 
@@ -140,6 +141,23 @@ export const LAYERS: Record<LayerId, LayerDef> = {
     description:
       'NPS National Register of Historic Places — block group centroid falls inside an officially-listed historic district. Binary.',
   },
+  industrial_count: {
+    id: 'industrial_count',
+    label: 'OSM industrial polygons',
+    shortLabel: 'Industrial',
+    property: 'industrial_count',
+    ramp: [
+      [0, '#a50f15'],
+      [1, '#de2d26'],
+      [3, '#fb6a4a'],
+      [6, '#fcae91'],
+      [12, '#fee5d9'],
+      [25, '#f7f7f7'],
+    ],
+    format: (v) => v.toFixed(0),
+    description:
+      'OpenStreetMap landuse=industrial polygons whose centroid falls inside this block group. High count = industrial district; drives the composite penalty.',
+  },
   sfh_detached_share: {
     id: 'sfh_detached_share',
     label: 'Single-family detached (%)',
@@ -169,6 +187,7 @@ export const LAYER_ORDER: LayerId[] = [
   'walkability',
   'intersection_density',
   'nrhp_district',
+  'industrial_count',
   'sfh_detached_share',
   'sfh_attached_share',
 ];

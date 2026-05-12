@@ -9,9 +9,29 @@ import { COUNTIES, STATES_USED } from '../lib/cities';
 import { fetchBlockGroupStats, type BlockGroupStats } from '../lib/census';
 import { loadSld } from '../lib/sld';
 import { fetchNrhpDistricts } from '../lib/nrhp';
+import { industrialQuery, osmToPolygonFc, overpass, type Bbox } from '../lib/overpass';
 
 const CACHE_DIR = path.resolve('scripts/.cache');
 const OUT_DIR = path.resolve('public/data');
+
+// Approximate bounding boxes per county (state+county FIPS) used to scope
+// Overpass queries. Generous on each side to ensure we cover every BG.
+// Order: [south, west, north, east]
+const COUNTY_BBOX: Record<string, Bbox> = {
+  '25025': [42.20, -71.20, 42.42, -70.98], // Suffolk MA (Boston)
+  '36061': [40.68, -74.05, 40.89, -73.90], // New York NY (Manhattan)
+  '36047': [40.55, -74.05, 40.75, -73.82], // Kings NY (Brooklyn)
+  '36005': [40.77, -73.94, 40.93, -73.76], // Bronx NY
+  '36081': [40.54, -73.97, 40.81, -73.69], // Queens NY
+  '36085': [40.48, -74.27, 40.66, -74.04], // Richmond NY (Staten Island)
+  '42101': [39.86, -75.29, 40.14, -74.95], // Philadelphia PA
+  '06075': [37.70, -123.05, 37.86, -122.34], // San Francisco CA
+  '17031': [41.46, -88.27, 42.16, -87.50], // Cook IL (Chicago + suburbs)
+  '22071': [29.85, -90.15, 30.20, -89.60], // Orleans LA (New Orleans)
+  '11001': [38.78, -77.13, 39.00, -76.90], // DC
+  '42003': [40.20, -80.37, 40.68, -79.68], // Allegheny PA (Pittsburgh)
+  '39061': [39.04, -84.83, 39.33, -84.35], // Hamilton OH (Cincinnati)
+};
 
 async function download(url: string, dest: string): Promise<void> {
   if (existsSync(dest)) {
@@ -78,6 +98,44 @@ async function main() {
     console.log(`  ${fc.features.length} district polygons`);
   } else {
     console.log(`  cached: ${path.basename(nrhpFile)}`);
+  }
+
+  // 2c. Fetch OSM industrial land-use polygons via Overpass (per-county, cached).
+  // County bboxes derived from the BG TIGER file are looked up below; for now we
+  // hardcode a wide-enough bbox per county that captures all its BGs plus a
+  // small buffer. We compute these from the COUNTIES list using a static lookup
+  // — easier than reading the TIGER shapefile twice.
+  const industrialFile = path.join(CACHE_DIR, 'industrial.geojson');
+  if (!existsSync(industrialFile)) {
+    console.log('Fetching OSM industrial landuse per county…');
+    const allInd: GeoJSON.Feature[] = [];
+    for (const c of COUNTIES) {
+      const bbox = COUNTY_BBOX[`${c.stateFips}${c.countyFips}`];
+      if (!bbox) {
+        console.warn(`  no bbox for ${c.name}`);
+        continue;
+      }
+      const cacheKey = `osm-industrial-${c.stateFips}${c.countyFips}.json`;
+      const cachePath = path.join(CACHE_DIR, cacheKey);
+      let fc: GeoJSON.FeatureCollection;
+      if (existsSync(cachePath)) {
+        fc = JSON.parse(await fs.readFile(cachePath, 'utf8')) as GeoJSON.FeatureCollection;
+        console.log(`  ${c.name}: ${fc.features.length} (cached)`);
+      } else {
+        const raw = await overpass(industrialQuery(bbox));
+        fc = osmToPolygonFc(raw);
+        await fs.writeFile(cachePath, JSON.stringify(fc));
+        console.log(`  ${c.name}: ${fc.features.length}`);
+        await new Promise((r) => setTimeout(r, 2000)); // throttle
+      }
+      allInd.push(...fc.features);
+    }
+    await fs.writeFile(
+      industrialFile,
+      JSON.stringify({ type: 'FeatureCollection', features: allInd }),
+    );
+  } else {
+    console.log(`  cached: ${path.basename(industrialFile)}`);
   }
 
   // 3. Merge state BG shapefiles, filter to our counties, simplify.
@@ -147,11 +205,13 @@ async function main() {
   }
   if (missing > 0) console.warn(`  ${missing} block groups had no matching stats`);
 
-  // 4a. Spatial-join NRHP districts onto BGs via BG centroid.
-  // Writes a temp file with the joined NRHP flag, then merges back.
-  console.log('Joining NRHP districts via BG centroids…');
+  // 4a. Spatial-join: NRHP districts (BG centroid → district) and OSM industrial
+  // landuse (industrial centroid → BG) in a single mapshaper pipeline.
+  console.log('Spatial joins (NRHP + industrial)…');
   const draftPath = path.join(CACHE_DIR, 'bg-with-stats.geojson');
   await fs.writeFile(draftPath, JSON.stringify(fc));
+
+  // BG-centroid → NRHP polygon (where does each BG sit?)
   const nrhpJoined = path.join(CACHE_DIR, 'bg-nrhp-joined.json');
   execSync(
     [
@@ -163,6 +223,19 @@ async function main() {
     ].join(' '),
     { stdio: 'inherit' },
   );
+
+  // Industrial polygon centroids → BG (how many industrial polys lie in each BG?)
+  const indJoined = path.join(CACHE_DIR, 'bg-ind-joined.geojson');
+  execSync(
+    [
+      'pnpm exec mapshaper',
+      `"${draftPath}"`,
+      `-join "${industrialFile}" calc="industrial_count=count()" point-method`,
+      `-o format=geojson "${indJoined}"`,
+    ].join(' '),
+    { stdio: 'inherit' },
+  );
+
   const joinedNrhpRaw = JSON.parse(await fs.readFile(nrhpJoined, 'utf8')) as
     | Array<Record<string, string | number>>
     | { [key: string]: Array<Record<string, string | number>> };
@@ -175,14 +248,28 @@ async function main() {
     if (!g) continue;
     nrhpByGeoid[g] = (r.nrhp_count as number) > 0 ? 1 : 0;
   }
-  // Patch features in-place + recompute composite with NRHP bonus.
+
+  const indFc = JSON.parse(await fs.readFile(indJoined, 'utf8')) as GeoJSON.FeatureCollection;
+  const indCountByGeoid: Record<string, number> = {};
+  for (const feature of indFc.features) {
+    const p = feature.properties as Record<string, unknown> | null;
+    if (!p) continue;
+    const g = p.geoid as string;
+    indCountByGeoid[g] = (p.industrial_count as number) ?? 0;
+  }
+
+  // Patch features in-place + recompute composite with bonuses/penalties.
   for (const f of fc.features) {
     const p = f.properties as Record<string, unknown>;
     const geoid = p.geoid as string;
-    const flag = nrhpByGeoid[geoid] ?? 0;
-    p.nrhp_district = flag;
+    const nrhpFlag = nrhpByGeoid[geoid] ?? 0;
+    const indCount = indCountByGeoid[geoid] ?? 0;
+    // Penalty saturates around 5 industrial polygons; max 40% knockdown.
+    const indPenalty = Math.min(indCount / 5, 1) * 0.4;
+    p.nrhp_district = nrhpFlag;
+    p.industrial_count = indCount;
     const base = p.composite_score as number;
-    p.composite_score = base * (1 + 0.25 * flag);
+    p.composite_score = base * (1 + 0.25 * nrhpFlag) * (1 - indPenalty);
   }
 
   const outPath = path.join(OUT_DIR, 'bg.geojson');

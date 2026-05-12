@@ -22,6 +22,7 @@ export type BgProperties = {
   walkability: number;
   intersection_density: number;
   nrhp_district: 0 | 1;
+  industrial_count: number;
   composite_score: number;
 };
 
