@@ -4,9 +4,9 @@ import path from 'node:path';
 import { unstable_cache } from 'next/cache';
 import { fetchListingsForZips } from '@/lib/rapidapi';
 
-// Map a tract GEOID to the ZIPs covering it.
+// Map a block-group GEOID (12 digits) to the ZIPs covering it.
 // Built once by scripts/build-data.ts; falls back to empty if missing.
-const ZIP_MAP_PATH = path.resolve('public/data/tract-zips.json');
+const ZIP_MAP_PATH = path.resolve('public/data/bg-zips.json');
 
 async function loadZipMap(): Promise<Record<string, string[]>> {
   try {
@@ -35,7 +35,7 @@ const getListings = unstable_cache(
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const geoid = url.searchParams.get('geoid');
-  if (!geoid || !/^\d{11}$/.test(geoid)) {
+  if (!geoid || !/^\d{12}$/.test(geoid)) {
     return NextResponse.json({ error: 'invalid geoid' }, { status: 400 });
   }
   const data = await getListings(geoid);

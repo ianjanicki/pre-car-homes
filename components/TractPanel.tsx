@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { TractProperties } from './Map';
+import type { BgProperties } from './Map';
+import { LAYERS, type LayerId } from '@/lib/layers';
 
 export type Listing = {
   address: string;
@@ -15,17 +16,25 @@ export type Listing = {
 };
 
 type Props = {
-  tract: TractProperties | null;
+  bg: BgProperties | null;
+  activeLayer: LayerId;
   onClose: () => void;
 };
 
-export default function TractPanel({ tract, onClose }: Props) {
+const BREAKDOWN_LAYERS: LayerId[] = [
+  'pre_1939_share',
+  'small_res_share',
+  'owner_occ_share',
+  'vacancy_rate',
+];
+
+export default function TractPanel({ bg, activeLayer, onClose }: Props) {
   const [listings, setListings] = useState<Listing[] | null>(null);
   const [listingsErr, setListingsErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!tract) {
+    if (!bg) {
       setListings(null);
       setListingsErr(null);
       return;
@@ -34,7 +43,7 @@ export default function TractPanel({ tract, onClose }: Props) {
     setLoading(true);
     setListings(null);
     setListingsErr(null);
-    fetch(`/api/listings?geoid=${tract.geoid}`)
+    fetch(`/api/listings?geoid=${bg.geoid}`)
       .then((r) => (r.ok ? r.json() : r.text().then((t) => Promise.reject(t))))
       .then((data: { listings: Listing[] }) => {
         if (cancelled) return;
@@ -48,21 +57,12 @@ export default function TractPanel({ tract, onClose }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [tract]);
+  }, [bg]);
 
-  if (!tract) return null;
+  if (!bg) return null;
 
-  const share = (tract.pre_1939_share * 100).toFixed(1);
-  const band =
-    tract.pre_1939_share >= 0.6
-      ? 'Strongly pre-car'
-      : tract.pre_1939_share >= 0.4
-        ? 'Likely pre-car character'
-        : tract.pre_1939_share >= 0.25
-          ? 'Old-stock present'
-          : tract.pre_1939_share >= 0.1
-            ? 'Mixed era'
-            : 'Post-war';
+  const activeDef = LAYERS[activeLayer];
+  const propVal = bg[activeDef.property as keyof BgProperties] as number;
 
   return (
     <div
@@ -71,28 +71,64 @@ export default function TractPanel({ tract, onClose }: Props) {
     >
       <div className="flex justify-between items-start mb-2">
         <div>
-          <div className="font-semibold text-zinc-900">{tract.name}</div>
-          <div className="text-xs text-zinc-500">GEOID {tract.geoid}</div>
+          <div className="font-semibold text-zinc-900">{bg.name}</div>
+          <div className="text-xs text-zinc-500">GEOID {bg.geoid}</div>
         </div>
         <button
           onClick={onClose}
           aria-label="Close"
-          className="text-zinc-400 hover:text-zinc-700 px-1"
+          className="text-zinc-400 hover:text-zinc-700 px-1 text-lg leading-none"
         >
           ×
         </button>
       </div>
 
       <div className="my-3">
-        <div className="text-3xl font-semibold text-zinc-900 leading-none">{share}%</div>
-        <div className="text-xs text-zinc-600 mt-1">{band}</div>
+        <div className="text-3xl font-semibold text-zinc-900 leading-none">
+          {activeDef.format(propVal ?? 0)}
+        </div>
+        <div className="text-xs text-zinc-600 mt-1">{activeDef.shortLabel}</div>
         <div className="text-xs text-zinc-500 mt-1">
-          {tract.pre1939.toLocaleString()} of {tract.total.toLocaleString()} housing units built 1939 or earlier
+          {bg.pre1939.toLocaleString()} of {bg.total.toLocaleString()} housing units built 1939 or earlier
+        </div>
+      </div>
+
+      <div className="border-t border-zinc-200 pt-3 mb-3">
+        <div className="font-semibold text-zinc-800 mb-2 text-xs uppercase tracking-wide">
+          Composite breakdown
+        </div>
+        <div className="space-y-1.5">
+          {BREAKDOWN_LAYERS.map((id) => {
+            const d = LAYERS[id];
+            const v = (bg[d.property as keyof BgProperties] as number) ?? 0;
+            // For vacancy, "good" is low; show a different visual cue.
+            const inverted = id === 'vacancy_rate';
+            const fillFrac = inverted ? 1 - Math.min(v, 0.5) / 0.5 : Math.min(v, 1);
+            return (
+              <div key={id} className="text-xs">
+                <div className="flex justify-between text-zinc-600">
+                  <span>{d.shortLabel}</span>
+                  <span className="font-mono text-zinc-900">{d.format(v)}</span>
+                </div>
+                <div className="h-1.5 mt-0.5 bg-zinc-100 rounded overflow-hidden">
+                  <div
+                    className="h-full bg-zinc-700"
+                    style={{ width: `${fillFrac * 100}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="text-[11px] text-zinc-500 mt-2 leading-snug">
+          Composite score: {bg.composite_score.toFixed(3)}
         </div>
       </div>
 
       <div className="border-t border-zinc-200 pt-3">
-        <div className="font-semibold text-zinc-800 mb-2">Sample listings (pre-1939)</div>
+        <div className="font-semibold text-zinc-800 mb-2 text-xs uppercase tracking-wide">
+          Sample listings (pre-1939)
+        </div>
         {loading ? (
           <div className="text-zinc-500 text-xs">Loading…</div>
         ) : listingsErr ? (
