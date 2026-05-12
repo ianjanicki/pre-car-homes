@@ -9,6 +9,7 @@ export type LayerId =
   | 'vacancy_rate'
   | 'walkability'
   | 'intersection_density'
+  | 'nrhp_district'
   | 'sfh_detached_share'
   | 'sfh_attached_share';
 
@@ -126,6 +127,19 @@ export const LAYERS: Record<LayerId, LayerDef> = {
     description:
       'EPA SLD — pedestrian-oriented intersections per square mile. High = tight pre-car street grid; low = cul-de-sacs and superblocks.',
   },
+  nrhp_district: {
+    id: 'nrhp_district',
+    label: 'National Register historic district',
+    shortLabel: 'NRHP district',
+    property: 'nrhp_district',
+    ramp: [
+      [0, '#f7f7f7'],
+      [1, '#a50f15'],
+    ],
+    format: (v) => (v >= 1 ? 'Yes' : 'No'),
+    description:
+      'NPS National Register of Historic Places — block group centroid falls inside an officially-listed historic district. Binary.',
+  },
   sfh_detached_share: {
     id: 'sfh_detached_share',
     label: 'Single-family detached (%)',
@@ -154,6 +168,7 @@ export const LAYER_ORDER: LayerId[] = [
   'vacancy_rate',
   'walkability',
   'intersection_density',
+  'nrhp_district',
   'sfh_detached_share',
   'sfh_attached_share',
 ];

@@ -21,6 +21,7 @@ export type BgProperties = {
   vacancy_rate: number;
   walkability: number;
   intersection_density: number;
+  nrhp_district: 0 | 1;
   composite_score: number;
 };
 

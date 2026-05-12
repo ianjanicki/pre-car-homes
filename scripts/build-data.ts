@@ -8,6 +8,7 @@ import { Readable } from 'node:stream';
 import { COUNTIES, STATES_USED } from '../lib/cities';
 import { fetchBlockGroupStats, type BlockGroupStats } from '../lib/census';
 import { loadSld } from '../lib/sld';
+import { fetchNrhpDistricts } from '../lib/nrhp';
 
 const CACHE_DIR = path.resolve('scripts/.cache');
 const OUT_DIR = path.resolve('public/data');
@@ -67,6 +68,17 @@ async function main() {
   console.log('Loading EPA SLD (NatWalkInd, D3B)…');
   const sld = await loadSld(sldCsv);
   console.log(`  ${sld.size} BG entries`);
+
+  // 2b. Fetch NRHP historic districts for our states (cached).
+  const nrhpFile = path.join(CACHE_DIR, 'nrhp.geojson');
+  if (!existsSync(nrhpFile)) {
+    console.log('Fetching NRHP historic districts…');
+    const fc = await fetchNrhpDistricts(STATES_USED);
+    await fs.writeFile(nrhpFile, JSON.stringify(fc));
+    console.log(`  ${fc.features.length} district polygons`);
+  } else {
+    console.log(`  cached: ${path.basename(nrhpFile)}`);
+  }
 
   // 3. Merge state BG shapefiles, filter to our counties, simplify.
   const countyPrefixes = COUNTIES.map((c) => `${c.stateFips}${c.countyFips}`);
@@ -134,6 +146,44 @@ async function main() {
     };
   }
   if (missing > 0) console.warn(`  ${missing} block groups had no matching stats`);
+
+  // 4a. Spatial-join NRHP districts onto BGs via BG centroid.
+  // Writes a temp file with the joined NRHP flag, then merges back.
+  console.log('Joining NRHP districts via BG centroids…');
+  const draftPath = path.join(CACHE_DIR, 'bg-with-stats.geojson');
+  await fs.writeFile(draftPath, JSON.stringify(fc));
+  const nrhpJoined = path.join(CACHE_DIR, 'bg-nrhp-joined.json');
+  execSync(
+    [
+      'pnpm exec mapshaper',
+      `"${draftPath}"`,
+      '-points centroid',
+      `-join "${nrhpFile}" calc="nrhp_count=count()"`,
+      `-o format=json "${nrhpJoined}"`,
+    ].join(' '),
+    { stdio: 'inherit' },
+  );
+  const joinedNrhpRaw = JSON.parse(await fs.readFile(nrhpJoined, 'utf8')) as
+    | Array<Record<string, string | number>>
+    | { [key: string]: Array<Record<string, string | number>> };
+  const joinedNrhp: Array<Record<string, string | number>> = Array.isArray(joinedNrhpRaw)
+    ? joinedNrhpRaw
+    : Object.values(joinedNrhpRaw).flat();
+  const nrhpByGeoid: Record<string, number> = {};
+  for (const r of joinedNrhp) {
+    const g = r.geoid as string | undefined;
+    if (!g) continue;
+    nrhpByGeoid[g] = (r.nrhp_count as number) > 0 ? 1 : 0;
+  }
+  // Patch features in-place + recompute composite with NRHP bonus.
+  for (const f of fc.features) {
+    const p = f.properties as Record<string, unknown>;
+    const geoid = p.geoid as string;
+    const flag = nrhpByGeoid[geoid] ?? 0;
+    p.nrhp_district = flag;
+    const base = p.composite_score as number;
+    p.composite_score = base * (1 + 0.25 * flag);
+  }
 
   const outPath = path.join(OUT_DIR, 'bg.geojson');
   await fs.writeFile(outPath, JSON.stringify(fc));
