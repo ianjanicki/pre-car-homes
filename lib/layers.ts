@@ -55,14 +55,14 @@ export const LAYERS: Record<LayerId, LayerDef> = {
     label: 'Pre-Car Charm (composite)',
     shortLabel: 'Charm',
     property: 'composite_score',
-    // Ramp tuned to the soft-floor distribution (median ≈ 0.27, p90 ≈ 0.49).
+    // Ramp tuned to the income+pre1939-weighted distribution (median ≈ 0.14, p90 ≈ 0.34, p99 ≈ 0.66).
     ramp: [
-      [0.05, '#f7f7f7'],
-      [0.15, '#fee5d9'],
-      [0.25, '#fcae91'],
-      [0.35, '#fb6a4a'],
-      [0.5, '#de2d26'],
-      [0.7, '#a50f15'],
+      [0.03, '#f7f7f7'],
+      [0.1, '#fee5d9'],
+      [0.18, '#fcae91'],
+      [0.28, '#fb6a4a'],
+      [0.45, '#de2d26'],
+      [0.65, '#a50f15'],
     ],
     format: (v) => v.toFixed(3),
     description:

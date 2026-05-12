@@ -241,18 +241,20 @@ async function main() {
     const intersection_density = sldEntry?.intersectionDensity ?? 0;
     const walk_norm = walkability > 0 ? Math.min(Math.max(walkability - 5, 0) / 15, 1) : 0;
     const median_income = s?.medianIncome ?? 0;
-    // Income normalization: scale 40k → 0.0, 150k → 1.0; clamp.
+    // Income normalization: scale 40k → 0.0, 250k → 1.0; clamp.
+    // Wider range than v2.1 to let high-income areas (Wilmette, Capitol Hill) pull harder.
     const income_norm =
-      median_income > 0 ? Math.min(Math.max((median_income - 40000) / 110000, 0), 1) : 0;
-    // Composite charm score with soft floors — no single weak dimension can crush
-    // the score. Missing walkability / income become a neutral 1.0.
+      median_income > 0 ? Math.min(Math.max((median_income - 40000) / 210000, 0), 1) : 0;
+    // Composite charm score. Pre-1939 and income are the two dominant signals
+    // (largest spread / lowest floor); the rest are softer. Missing walkability
+    // and missing income are treated as neutral 1.0.
     const composite_score =
-      (0.4 + 0.6 * pre_1939_share) *
+      (0.2 + 0.8 * pre_1939_share) *
       (0.5 + 0.5 * small_res_share) *
       (1 - 0.7 * Math.min(vacancy_rate, 0.6)) *
       (0.6 + 0.4 * owner_occ_share) *
       (walkability > 0 ? 0.6 + 0.4 * walk_norm : 1.0) *
-      (median_income > 0 ? 0.7 + 0.3 * income_norm : 1.0);
+      (median_income > 0 ? 0.4 + 0.6 * income_norm : 1.0);
     f.properties = {
       geoid,
       name: props.NAMELSAD ?? props.NAME,
