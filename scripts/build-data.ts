@@ -7,6 +7,7 @@ import { Readable } from 'node:stream';
 
 import { COUNTIES, STATES_USED } from '../lib/cities';
 import { fetchBlockGroupStats, type BlockGroupStats } from '../lib/census';
+import { loadSld } from '../lib/sld';
 
 const CACHE_DIR = path.resolve('scripts/.cache');
 const OUT_DIR = path.resolve('public/data');
@@ -42,6 +43,16 @@ async function main() {
     zctaZip,
   );
 
+  // EPA Smart Location Database v3 — CSV at BG level (~250 MB) keyed on
+  // GEOID10. Contains the NatWalkInd composite (1-20) and all underlying vars.
+  // NOTE: SLD uses 2010 BG boundaries; our TIGER is 2020. ~95% of GEOIDs
+  // overlap — accept the small mismatch for v2.
+  const sldCsv = path.join(CACHE_DIR, 'sld.csv');
+  await download(
+    'https://edg.epa.gov/EPADataCommons/public/OA/EPA_SmartLocationDatabase_V3_Jan_2021_Final.csv',
+    sldCsv,
+  );
+
   // 2. Pull ACS stats per county.
   console.log('Fetching Census ACS stats…');
   const stats: Record<string, BlockGroupStats> = {};
@@ -51,6 +62,11 @@ async function main() {
     for (const r of rows) stats[r.geoid] = r;
     console.log(`${rows.length} block groups`);
   }
+
+  // 2a. Load EPA Smart Location Database (walkability + intersection density).
+  console.log('Loading EPA SLD (NatWalkInd, D3B)…');
+  const sld = await loadSld(sldCsv);
+  console.log(`  ${sld.size} BG entries`);
 
   // 3. Merge state BG shapefiles, filter to our counties, simplify.
   const countyPrefixes = COUNTIES.map((c) => `${c.stateFips}${c.countyFips}`);
@@ -88,13 +104,17 @@ async function main() {
     const small_res_share = s?.smallResShare ?? 0;
     const owner_occ_share = s?.ownerOccShare ?? 0;
     const vacancy_rate = s?.vacancyRate ?? 0;
-    // Composite charm score using the ACS signals we currently have.
-    // Will be re-derived as walkability / tree canopy / NRHP layers come in.
+    const sldEntry = sld.get(geoid);
+    const walkability = sldEntry?.walkability ?? 0;
+    const intersection_density = sldEntry?.intersectionDensity ?? 0;
+    const walk_norm = walkability > 0 ? Math.min(Math.max(walkability - 5, 0) / 15, 1) : 0;
+    // Composite charm score. Will pick up tree canopy + NRHP in upcoming milestones.
     const composite_score =
       pre_1939_share *
       small_res_share *
       (1 - Math.min(vacancy_rate, 0.6)) *
-      (0.5 + 0.5 * owner_occ_share);
+      (0.5 + 0.5 * owner_occ_share) *
+      (0.5 + 0.5 * walk_norm);
     f.properties = {
       geoid,
       name: props.NAMELSAD ?? props.NAME,
@@ -108,6 +128,8 @@ async function main() {
       multifamily_large_share: s?.multifamilyLargeShare ?? 0,
       owner_occ_share,
       vacancy_rate,
+      walkability,
+      intersection_density,
       composite_score,
     };
   }

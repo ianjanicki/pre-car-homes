@@ -26,6 +26,7 @@ const BREAKDOWN_LAYERS: LayerId[] = [
   'small_res_share',
   'owner_occ_share',
   'vacancy_rate',
+  'walkability',
 ];
 
 export default function TractPanel({ bg, activeLayer, onClose }: Props) {
@@ -101,9 +102,12 @@ export default function TractPanel({ bg, activeLayer, onClose }: Props) {
           {BREAKDOWN_LAYERS.map((id) => {
             const d = LAYERS[id];
             const v = (bg[d.property as keyof BgProperties] as number) ?? 0;
-            // For vacancy, "good" is low; show a different visual cue.
             const inverted = id === 'vacancy_rate';
-            const fillFrac = inverted ? 1 - Math.min(v, 0.5) / 0.5 : Math.min(v, 1);
+            // Normalize bar fill to [0,1] regardless of source unit.
+            let fillFrac: number;
+            if (inverted) fillFrac = 1 - Math.min(v, 0.5) / 0.5;
+            else if (id === 'walkability') fillFrac = Math.max(0, Math.min((v - 1) / 19, 1));
+            else fillFrac = Math.min(v, 1);
             return (
               <div key={id} className="text-xs">
                 <div className="flex justify-between text-zinc-600">

@@ -19,6 +19,8 @@ export type BgProperties = {
   multifamily_large_share: number;
   owner_occ_share: number;
   vacancy_rate: number;
+  walkability: number;
+  intersection_density: number;
   composite_score: number;
 };
 

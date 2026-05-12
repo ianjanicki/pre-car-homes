@@ -7,6 +7,8 @@ export type LayerId =
   | 'small_res_share'
   | 'owner_occ_share'
   | 'vacancy_rate'
+  | 'walkability'
+  | 'intersection_density'
   | 'sfh_detached_share'
   | 'sfh_attached_share';
 
@@ -90,6 +92,40 @@ export const LAYERS: Record<LayerId, LayerDef> = {
     format: pct,
     description: 'ACS B25002 — share of housing units vacant. High vacancy is a blight signal.',
   },
+  walkability: {
+    id: 'walkability',
+    label: 'Walkability (EPA NatWalkInd 1–20)',
+    shortLabel: 'Walkability',
+    property: 'walkability',
+    ramp: [
+      [1, '#f7f7f7'],
+      [5, '#fee5d9'],
+      [9, '#fcae91'],
+      [12, '#fb6a4a'],
+      [15, '#de2d26'],
+      [18, '#a50f15'],
+    ],
+    format: (v) => v.toFixed(1),
+    description:
+      'EPA National Walkability Index — composite of intersection density, transit access, employment mix, and population density. 1 = car-dependent, 20 = most walkable.',
+  },
+  intersection_density: {
+    id: 'intersection_density',
+    label: 'Intersection density (D3B)',
+    shortLabel: 'Intersections',
+    property: 'intersection_density',
+    ramp: [
+      [0, '#f7f7f7'],
+      [50, '#fee5d9'],
+      [100, '#fcae91'],
+      [200, '#fb6a4a'],
+      [350, '#de2d26'],
+      [500, '#a50f15'],
+    ],
+    format: (v) => v.toFixed(0),
+    description:
+      'EPA SLD — pedestrian-oriented intersections per square mile. High = tight pre-car street grid; low = cul-de-sacs and superblocks.',
+  },
   sfh_detached_share: {
     id: 'sfh_detached_share',
     label: 'Single-family detached (%)',
@@ -116,6 +152,8 @@ export const LAYER_ORDER: LayerId[] = [
   'small_res_share',
   'owner_occ_share',
   'vacancy_rate',
+  'walkability',
+  'intersection_density',
   'sfh_detached_share',
   'sfh_attached_share',
 ];
