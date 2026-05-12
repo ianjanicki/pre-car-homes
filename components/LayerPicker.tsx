@@ -10,8 +10,8 @@ type Props = {
 export default function LayerPicker({ active, onChange }: Props) {
   return (
     <div
-      className="absolute left-4 w-56 bg-white/95 backdrop-blur rounded-md shadow-lg p-3 text-sm"
-      style={{ marginTop: '60px', top: 0 }}
+      className="absolute left-4 bg-white/95 backdrop-blur rounded-md shadow-lg p-3 text-sm"
+      style={{ marginTop: '60px', top: 0, width: '224px' }}
     >
       <div className="font-semibold text-zinc-900 mb-2 text-xs uppercase tracking-wide">
         Layer
