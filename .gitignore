@@ -36,6 +36,14 @@ yarn-error.log*
 # vercel
 .vercel
 
+# data pipeline scratch (TIGER zips, intermediate files)
+/scripts/.cache/
+
+# tooling scratch
+.playwright-mcp/
+.glide/
+/map-*.png
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
