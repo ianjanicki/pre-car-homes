@@ -165,6 +165,29 @@ async function main() {
   console.log('Joining stats…');
   const fc = JSON.parse(await fs.readFile(mergedOut, 'utf8')) as GeoJSON.FeatureCollection;
   let missing = 0;
+
+  // Build tract & county walkability fallbacks for BGs missing SLD data.
+  // Treat absence as neutral rather than as worst-case.
+  const tractWalk: Record<string, { sum: number; n: number }> = {};
+  const countyWalk: Record<string, { sum: number; n: number }> = {};
+  for (const props of Object.values(stats)) {
+    const sldEntry = sld.get(props.geoid);
+    if (!sldEntry || !(sldEntry.walkability > 0)) continue;
+    const tract = props.geoid.substring(0, 11);
+    const county = props.geoid.substring(0, 5);
+    (tractWalk[tract] ??= { sum: 0, n: 0 }).sum += sldEntry.walkability;
+    tractWalk[tract].n += 1;
+    (countyWalk[county] ??= { sum: 0, n: 0 }).sum += sldEntry.walkability;
+    countyWalk[county].n += 1;
+  }
+  const tractAvg = (g: string) => {
+    const e = tractWalk[g.substring(0, 11)];
+    return e && e.n > 0 ? e.sum / e.n : 0;
+  };
+  const countyAvg = (g: string) => {
+    const e = countyWalk[g.substring(0, 5)];
+    return e && e.n > 0 ? e.sum / e.n : 0;
+  };
   for (const f of fc.features) {
     const props = f.properties as Record<string, string>;
     const geoid = props.GEOID;
@@ -175,16 +198,28 @@ async function main() {
     const owner_occ_share = s?.ownerOccShare ?? 0;
     const vacancy_rate = s?.vacancyRate ?? 0;
     const sldEntry = sld.get(geoid);
-    const walkability = sldEntry?.walkability ?? 0;
+    // Impute walkability when SLD has no entry: tract average → county average.
+    let walkability = sldEntry?.walkability ?? 0;
+    let walkability_imputed = 0;
+    if (!(walkability > 0)) {
+      walkability = tractAvg(geoid) || countyAvg(geoid) || 0;
+      walkability_imputed = walkability > 0 ? 1 : 0;
+    }
     const intersection_density = sldEntry?.intersectionDensity ?? 0;
     const walk_norm = walkability > 0 ? Math.min(Math.max(walkability - 5, 0) / 15, 1) : 0;
-    // Composite charm score. Will pick up tree canopy + NRHP in upcoming milestones.
+    const median_income = s?.medianIncome ?? 0;
+    // Income normalization: scale 40k → 0.0, 150k → 1.0; clamp.
+    const income_norm =
+      median_income > 0 ? Math.min(Math.max((median_income - 40000) / 110000, 0), 1) : 0;
+    // Composite charm score with soft floors — no single weak dimension can crush
+    // the score. Missing walkability / income become a neutral 1.0.
     const composite_score =
-      pre_1939_share *
-      small_res_share *
-      (1 - Math.min(vacancy_rate, 0.6)) *
-      (0.5 + 0.5 * owner_occ_share) *
-      (0.5 + 0.5 * walk_norm);
+      (0.4 + 0.6 * pre_1939_share) *
+      (0.5 + 0.5 * small_res_share) *
+      (1 - 0.7 * Math.min(vacancy_rate, 0.6)) *
+      (0.6 + 0.4 * owner_occ_share) *
+      (walkability > 0 ? 0.6 + 0.4 * walk_norm : 1.0) *
+      (median_income > 0 ? 0.7 + 0.3 * income_norm : 1.0);
     f.properties = {
       geoid,
       name: props.NAMELSAD ?? props.NAME,
@@ -199,7 +234,9 @@ async function main() {
       owner_occ_share,
       vacancy_rate,
       walkability,
+      walkability_imputed,
       intersection_density,
+      median_income,
       composite_score,
     };
   }

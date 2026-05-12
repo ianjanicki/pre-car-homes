@@ -42,6 +42,8 @@ export type BlockGroupStats = {
   ownerOccShare: number;
   // B25002
   vacancyRate: number;
+  // B19013 — median household income (dollars). -666666666 = no data.
+  medianIncome: number;
 };
 
 const ACS_YEAR = '2023';
@@ -65,6 +67,8 @@ const VARS = [
   // B25002 — occupancy
   'B25002_001E',
   'B25002_003E',
+  // B19013 — median household income (last 12 months)
+  'B19013_001E',
 ] as const;
 
 export async function fetchBlockGroupStats(
@@ -104,6 +108,7 @@ export async function fetchBlockGroupStats(
     owner: col('B25003_002E'),
     occ_total: col('B25002_001E'),
     vacant: col('B25002_003E'),
+    medianIncome: col('B19013_001E'),
   };
 
   const num = (row: string[], idx: number) => {
@@ -124,6 +129,9 @@ export async function fetchBlockGroupStats(
     const owner = num(row, c.owner);
     const occTotal = num(row, c.occ_total);
     const vacant = num(row, c.vacant);
+    const incomeRaw = Number(row[c.medianIncome]);
+    // Census uses -666666666 as the "no estimate" sentinel for income.
+    const medianIncome = Number.isFinite(incomeRaw) && incomeRaw > 0 ? incomeRaw : 0;
 
     return {
       geoid: `${row[c.state]}${row[c.county]}${row[c.tract]}${row[c.bg]}`,
@@ -136,6 +144,7 @@ export async function fetchBlockGroupStats(
       multifamilyLargeShare: safeDiv(fiftyPlus, b25024Total),
       ownerOccShare: safeDiv(owner, tenureTotal),
       vacancyRate: safeDiv(vacant, occTotal),
+      medianIncome,
     };
   });
 }

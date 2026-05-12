@@ -9,6 +9,7 @@ export type LayerId =
   | 'vacancy_rate'
   | 'walkability'
   | 'intersection_density'
+  | 'median_income'
   | 'nrhp_district'
   | 'industrial_count'
   | 'sfh_detached_share'
@@ -53,10 +54,18 @@ export const LAYERS: Record<LayerId, LayerDef> = {
     label: 'Pre-Car Charm (composite)',
     shortLabel: 'Charm',
     property: 'composite_score',
-    ramp: REDS_LIGHT_TO_DARK,
+    // Ramp tuned to the soft-floor distribution (median ≈ 0.27, p90 ≈ 0.49).
+    ramp: [
+      [0.05, '#f7f7f7'],
+      [0.15, '#fee5d9'],
+      [0.25, '#fcae91'],
+      [0.35, '#fb6a4a'],
+      [0.5, '#de2d26'],
+      [0.7, '#a50f15'],
+    ],
     format: (v) => v.toFixed(3),
     description:
-      'Pre-1939 share, weighted by residential typology, low vacancy, and owner-occupancy. More data sources (walkability, tree canopy, historic districts) will fold in over time.',
+      'Pre-1939 housing share, weighted by residential typology, vacancy, owner-occupancy, walkability, income, NRHP overlay, and an industrial penalty. Multiplicative with soft floors so no single weak dimension crushes the score.',
   },
   pre_1939_share: {
     id: 'pre_1939_share',
@@ -128,6 +137,23 @@ export const LAYERS: Record<LayerId, LayerDef> = {
     description:
       'EPA SLD — pedestrian-oriented intersections per square mile. High = tight pre-car street grid; low = cul-de-sacs and superblocks.',
   },
+  median_income: {
+    id: 'median_income',
+    label: 'Median household income (USD)',
+    shortLabel: 'Income',
+    property: 'median_income',
+    ramp: [
+      [40000, '#f7f7f7'],
+      [70000, '#fee5d9'],
+      [100000, '#fcae91'],
+      [140000, '#fb6a4a'],
+      [200000, '#de2d26'],
+      [250000, '#a50f15'],
+    ],
+    format: (v) => (v > 0 ? `$${Math.round(v / 1000)}k` : 'n/a'),
+    description:
+      'ACS B19013 — median household income. Used as a "high-end residential" coefficient in the composite (capped 40k–150k).',
+  },
   nrhp_district: {
     id: 'nrhp_district',
     label: 'National Register historic district',
@@ -186,6 +212,7 @@ export const LAYER_ORDER: LayerId[] = [
   'vacancy_rate',
   'walkability',
   'intersection_density',
+  'median_income',
   'nrhp_district',
   'industrial_count',
   'sfh_detached_share',

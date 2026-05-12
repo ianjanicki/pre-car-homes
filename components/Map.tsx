@@ -20,7 +20,9 @@ export type BgProperties = {
   owner_occ_share: number;
   vacancy_rate: number;
   walkability: number;
+  walkability_imputed: 0 | 1;
   intersection_density: number;
+  median_income: number;
   nrhp_district: 0 | 1;
   industrial_count: number;
   composite_score: number;
